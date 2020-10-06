@@ -22,5 +22,5 @@ jobs:
         uses: pypa/gh-action-pypi-publish@v1.1.0
         with:
           user: __token__
-          password: ${{secrets.twine_password }}
+          password: ${{secrets.pypi_password}}
           packages_dir: dist/
