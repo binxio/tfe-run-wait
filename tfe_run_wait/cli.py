@@ -6,6 +6,7 @@ from sys import stderr
 from collections import namedtuple
 from time import sleep, time
 from typing import Iterable, Optional
+from .env_default import EnvDefault
 
 import requests
 
@@ -166,19 +167,6 @@ def wait_until(
     )
 
 
-class EnvDefault(argparse.Action):
-    def __init__(self, envvar, required=True, default=None, **kwargs):
-        if not default and envvar:
-            if envvar in os.environ:
-                default = os.environ[envvar]
-        if required and default:
-            required = False
-        super(EnvDefault, self).__init__(default=default, required=required, **kwargs)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, values)
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="wait for TFE run to reach specified state."
@@ -239,7 +227,7 @@ def main():
             args.wait_for_status,
             args.clone_url,
             args.commit_sha,
-            args.maximum_wait_time * 60,
+            args.maximum_wait_time * 15,
             args.verbose,
         )
     )
