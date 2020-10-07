@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+from sys import stdout
 from collections import namedtuple
 from time import sleep, time
 from typing import Iterable, Optional
@@ -175,7 +176,6 @@ def wait_until(
     return 1
 
 
-
 def main():
     parser = argparse.ArgumentParser(
         description="wait for TFE run to reach specified state."
@@ -244,6 +244,8 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"), format="%(levelname)s: %(message)s"
+        stream=stdout,
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        format="%(levelname)s: %(message)s",
     )
     main()
