@@ -1,0 +1,10 @@
+steps:
+  - name: docker
+    entrypoint: '/bin/sh'
+    args:
+      - -c
+      - 'docker build -t gcr.io/$PROJECT_ID/tfe-run-wait:$SHORT_SHA . &&
+         docker tag gcr.io/$PROJECT_ID/tfe-run-wait:$SHORT_SHA gcr.io/$PROJECT_ID/tfe-run-wait:$TAG_NAME &&
+         docker tag gcr.io/$PROJECT_ID/tfe-run-wait:$SHORT_SHA gcr.io/$PROJECT_ID/tfe-run-wait:latest'
+images:
+  - 'gcr.io/$PROJECT_ID/tfe-run-wait'
