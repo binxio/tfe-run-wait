@@ -165,14 +165,14 @@ def wait_until(
                 "canceled",
                 "force_canceled",
                 "planned_and_finished",
-                "applied"
+                "applied",
             ):
                 log.error(
                     "%s in workspace %s has status %s and can no longer reach the desired status of %s",
                     run_id,
                     workspace_name,
                     status,
-                    ', '.join(wait_for_status),
+                    ", ".join(wait_for_status),
                 )
                 return 1
             else:
@@ -255,7 +255,7 @@ def _wait():
         required=False,
         default=["applied", "planned_and_finished"],
         help="wait state to reach",
-        action='append'
+        action="append",
     )
     parser.add_argument(
         "--maximum-wait-time",
@@ -318,12 +318,13 @@ def _apply():
         parser.error(f"no such run found.")
 
     status = run.get("attributes", {}).get("status")
-    if status == "planned_and_finished":
+    if status in ["applied", "planned_and_finished"]:
         log.info(
-            "%s in workspace %s for commit %s has already been applied",
+            "%s in workspace %s for commit %s has already been %s",
             run["id"],
             args.workspace,
             args.commit_sha[0:7],
+            status,
         )
         exit(0)
 
