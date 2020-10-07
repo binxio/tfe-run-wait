@@ -2,10 +2,10 @@ import argparse
 import json
 import logging
 import os
-from sys import stderr
 from collections import namedtuple
 from time import sleep, time
 from typing import Iterable, Optional
+from tfe_run_wait.env_default import EnvDefault
 
 import requests
 
@@ -105,6 +105,7 @@ def wait_until(
     maximum_wait_time_in_seconds: int,
     verbose: bool = False,
 ):
+    run_id = None
     workspace_name = workspace["attributes"]["name"]
     now = start_time = time()
     while (now - start_time) < maximum_wait_time_in_seconds:
@@ -140,13 +141,12 @@ def wait_until(
                 return 1
             else:
                 logging.info(
-                    "run %s in workspace %s has status %s, waiting 60s",
+                    "run %s in workspace %s has status %s, waiting 15s",
                     run_id,
                     workspace_name,
                     status,
                 )
-                stderr.flush()
-                sleep(60)
+                sleep(15)
         else:
             logging.info(
                 "waiting for a run in workspace %s for commit %s in %s to appear",
@@ -154,29 +154,26 @@ def wait_until(
                 commit_sha[0:7],
                 clone_url,
             )
-            stderr.flush()
-            sleep(60)
+            sleep(15)
         now = time()
 
-    logging.error(
-        "time out while waiting for a run in workspace %s to reach  state %s",
-        run_id,
-        workspace_name,
-        wait_for_status,
-    )
+    if run_id:
+        logging.error(
+            "time out while waiting for a run %s in workspace %s to reach state %s",
+            run_id,
+            workspace_name,
+            wait_for_status,
+        )
+    else:
+        logging.error(
+            "time out while waiting for a run in workspace %s for commit %s in %s",
+            run_id,
+            workspace_name,
+            commit_sha[0:7],
+            clone_url,
+        )
+    return 1
 
-
-class EnvDefault(argparse.Action):
-    def __init__(self, envvar, required=True, default=None, **kwargs):
-        if not default and envvar:
-            if envvar in os.environ:
-                default = os.environ[envvar]
-        if required and default:
-            required = False
-        super(EnvDefault, self).__init__(default=default, required=required, **kwargs)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, values)
 
 
 def main():
@@ -239,7 +236,7 @@ def main():
             args.wait_for_status,
             args.clone_url,
             args.commit_sha,
-            args.maximum_wait_time * 60,
+            args.maximum_wait_time * 15,
             args.verbose,
         )
     )
