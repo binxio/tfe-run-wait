@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+from sys import stderr
 from collections import namedtuple
 from time import sleep, time
 from typing import Iterable, Optional
@@ -144,6 +145,7 @@ def wait_until(
                     workspace_name,
                     status,
                 )
+                stderr.flush()
                 sleep(60)
         else:
             logging.info(
@@ -152,6 +154,7 @@ def wait_until(
                 commit_sha[0:7],
                 clone_url,
             )
+            stderr.flush()
             sleep(60)
         now = time()
 
