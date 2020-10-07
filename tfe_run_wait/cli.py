@@ -25,7 +25,7 @@ def _post(path: str, params: dict = {}, data: dict = {}):
 
     log.debug("post %s, %s, %s", url, params, data)
     r = requests.post(url, headers=hdrs, params=params, json=data)
-    if r.status_code != 200:
+    if r.status_code not in [200, 201, 202]:
         raise TFEError(r)
 
 
@@ -41,11 +41,13 @@ class TFEError(Exception):
             map(lambda e: "{}: {}".format(e.get("status"), e.get("title")), self.errors)
         )
 
+    @property
     def status(self):
-        return self.errors[0].get("status")
+        return self.errors[0].get("status") if self.errors else "500"
 
+    @property
     def title(self):
-        return self.errors[0].get("status")
+        return self.errors[0].get("status") if self.errors else "unknown"
 
 
 def _get(path: str, params: dict = {}) -> Optional[dict]:
