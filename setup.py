@@ -7,7 +7,7 @@ dependencies = ['requests']
 
 setup(
     name='tfe-run-wait',
-    version='0.3.5',
+    version='0.4.0',
     url='https://github.com/binxio/tfe-run-wait',
     license='BSD',
     author='Mark van Holsteijn',
