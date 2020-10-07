@@ -1,13 +1,13 @@
 import argparse
-import sys
 import os
 from time import sleep, time
-from typing import Iterable, Optional
-from tfe_run_wait.argument_types import EnvDefault
-from tfe_run_wait.logger import log
-from requests import Response
+from typing import Iterable, List, Optional
 
 import requests
+from requests import Response
+
+from tfe_run_wait.argument_types import EnvDefault
+from tfe_run_wait.logger import log
 
 _tfe_api_token = os.getenv("TFE_API_TOKEN")
 
@@ -134,7 +134,7 @@ def get_plan(run: dict) -> Optional[dict]:
 
 def wait_until(
     workspace: dict,
-    wait_for_status: str,
+    wait_for_status: List[str],
     clone_url: str,
     commit_sha: str,
     maximum_wait_time_in_seconds: int,
@@ -151,12 +151,12 @@ def wait_until(
         if run:
             run_id = run["id"]
             status = run.get("attributes").get("status")
-            if status == wait_for_status:
+            if status in wait_for_status:
                 log.info(
                     "%s in workspace %s has reached state %s",
                     run_id,
                     workspace_name,
-                    wait_for_status,
+                    status,
                 )
                 return 0
             elif status in (
@@ -165,13 +165,14 @@ def wait_until(
                 "canceled",
                 "force_canceled",
                 "planned_and_finished",
+                "applied"
             ):
                 log.error(
                     "%s in workspace %s has status %s and can no longer reach the desired status of %s",
                     run_id,
                     workspace_name,
                     status,
-                    wait_for_status,
+                    ', '.join(wait_for_status),
                 )
                 return 1
             else:
@@ -200,7 +201,7 @@ def wait_until(
             int(time() - start_time),
             run_id,
             workspace_name,
-            wait_for_status,
+            ", ".join(wait_for_status),
         )
     else:
         log.error(
@@ -252,8 +253,9 @@ def _wait():
     parser.add_argument(
         "--wait-for-status",
         required=False,
-        default="planned_and_finished",
+        default=["applied", "planned_and_finished"],
         help="wait state to reach",
+        action='append'
     )
     parser.add_argument(
         "--maximum-wait-time",
@@ -342,7 +344,7 @@ def _apply():
     exit(
         wait_until(
             workspace,
-            "planned_and_finished",
+            ["applied"],
             args.clone_url,
             args.commit_sha,
             args.maximum_wait_time * 60,
