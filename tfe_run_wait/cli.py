@@ -1,13 +1,51 @@
 import argparse
-import logging
+import sys
 import os
 from time import sleep, time
 from typing import Iterable, Optional
-from tfe_run_wait.env_default import EnvDefault
+from tfe_run_wait.argument_types import EnvDefault
+from tfe_run_wait.logger import log
+from requests import Response
 
 import requests
 
 _tfe_api_token = os.getenv("TFE_API_TOKEN")
+
+
+def _post(path: str, params: dict = {}, data: dict = {}):
+    hdrs = {
+        "Authorization": f"Bearer {_tfe_api_token}",
+        "content-type": "application/vnd.api+json",
+    }
+
+    if path.startswith("/api/") or path.startswith("api/"):
+        url = f'https://app.terraform.io/{path.lstrip("/")}'
+    else:
+        url = f"https://app.terraform.io/api/v2/{path}"
+
+    log.debug("post %s, %s, %s", url, params, data)
+    r = requests.post(url, headers=hdrs, params=params, json=data)
+    if r.status_code != 200:
+        raise TFEError(r)
+
+
+class TFEError(Exception):
+    def __init__(self, response: Response):
+        try:
+            self.errors = response.json().get("errors", [])
+        except:
+            self.errors = [{"status": response.status_code, "title": response.text}]
+
+    def __str__(self):
+        return "\n".join(
+            map(lambda e: "{}: {}".format(e.get("status"), e.get("title")), self.errors)
+        )
+
+    def status(self):
+        return self.errors[0].get("status")
+
+    def title(self):
+        return self.errors[0].get("status")
 
 
 def _get(path: str, params: dict = {}) -> Optional[dict]:
@@ -18,14 +56,14 @@ def _get(path: str, params: dict = {}) -> Optional[dict]:
     else:
         url = f"https://app.terraform.io/api/v2/{path}"
 
-    logging.debug("get %s, %s", url, params)
+    log.debug("get %s, %s", url, params)
     r = requests.get(url, headers=hdrs, params=params)
     if r.status_code == 200:
         return r.json()["data"]
     elif r.status_code == 404:
         return None
     else:
-        raise Exception(f"failed to get {path}, status code {r.status_code}, {r.text}")
+        raise TFEError(r)
 
 
 def _list(path: str, headers: dict = {}, params: dict = {}) -> Iterable[dict]:
@@ -41,7 +79,7 @@ def _list(path: str, headers: dict = {}, params: dict = {}) -> Iterable[dict]:
     else:
         url = f"https://app.terraform.io/api/v2/{path}"
 
-    logging.debug("get %s, %s", url, params)
+    log.debug("get %s, %s", url, params)
     r = requests.get(url, headers=hdrs, params=prms)
     while r.status_code == 200:
         response = r.json()
@@ -55,8 +93,7 @@ def _list(path: str, headers: dict = {}, params: dict = {}) -> Iterable[dict]:
             return
 
     if r.status_code not in (200, 404):
-        raise Exception(f"failed to list {path}, status code {r.status_code}, {r.text}")
-
+        raise TFEError(r)
 
 
 def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[dict]:
@@ -115,7 +152,7 @@ def wait_until(
             run_id = run["id"]
             status = run.get("attributes").get("status")
             if status == wait_for_status:
-                logging.info(
+                log.info(
                     "%s in workspace %s has reached state %s",
                     run_id,
                     workspace_name,
@@ -129,7 +166,7 @@ def wait_until(
                 "force_canceled",
                 "planned_and_finished",
             ):
-                logging.error(
+                log.error(
                     "%s in workspace %s has status %s and can no longer reach the desired status of %s",
                     run_id,
                     workspace_name,
@@ -138,16 +175,16 @@ def wait_until(
                 )
                 return 1
             else:
-                logging.info(
+                log.info(
                     "%s in workspace %s in status %s, waited %ss",
                     run_id,
                     workspace_name,
                     status,
-                    int(time() - start_time)
+                    int(time() - start_time),
                 )
                 sleep(10)
         else:
-            logging.info(
+            log.info(
                 "waiting %ss for a run in workspace %s for commit %s in %s to appear",
                 int(time() - start_time),
                 workspace_name,
@@ -158,7 +195,7 @@ def wait_until(
         now = time()
 
     if run_id:
-        logging.error(
+        log.error(
             "timed out after %ss waiting for %s in workspace %s to reach state %s",
             int(time() - start_time),
             run_id,
@@ -166,7 +203,7 @@ def wait_until(
             wait_for_status,
         )
     else:
-        logging.error(
+        log.error(
             "time out while waiting for a run in workspace %s for commit %s in %s to appear",
             run_id,
             workspace_name,
@@ -174,6 +211,23 @@ def wait_until(
             clone_url,
         )
     return 1
+
+
+def _get_org_and_workspace(parser, args) -> (dict, dict):
+    global _tfe_api_token
+    if args.token:
+        _tfe_api_token = args.token
+
+    org = _get(f"organizations/{args.organization}")
+    if not org:
+        parser.error(f"unknown organization {args.organization}.")
+
+    workspace = _get(f"organizations/{args.organization}/workspaces/{args.workspace}")
+    if not workspace:
+        parser.error(
+            f"workspace {args.workspace} is unknown in organization {args.organization}."
+        )
+    return (org, workspace)
 
 
 def _wait():
@@ -209,21 +263,11 @@ def _wait():
         help="for state to be reached in minutes, default 45",
     )
     args = parser.parse_args()
+    org, workspace = _get_org_and_workspace(parser, args)
 
-    global _tfe_api_token
-    _tfe_api_token = args.token
-
-    org = _get(f"organizations/{args.organization}")
-    if not org:
-        parser.error(f"unknown organization {args.organization}.")
-
-    workspace = _get(f"organizations/{args.organization}/workspaces/{args.workspace}")
-    if not workspace:
-        parser.error(
-            f"workspace {args.workspace} is unknown in organization {args.organization}."
-        )
-
-    logging.info(f"waiting for run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}")
+    log.info(
+        f"waiting for run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
+    )
     exit(
         wait_until(
             workspace,
@@ -234,12 +278,73 @@ def _wait():
         )
     )
 
-def main():
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        format="%(levelname)s: %(message)s",
-    )
-    _wait()
 
-if __name__ == "__main__":
-    main()
+def _apply():
+    parser = argparse.ArgumentParser(description="a planned TFE run.")
+    parser.add_argument(
+        "--token",
+        action=EnvDefault,
+        envvar="TFE_API_TOKEN",
+        help="Terraform Enterprise access token, default from TFE_API_TOKEN",
+    )
+
+    parser.add_argument("--organization", required=True, help="of the workspace")
+    parser.add_argument("--workspace", required=True, help="to inspect runs for")
+    parser.add_argument(
+        "--clone-url", required=True, help="of source repository for the run"
+    )
+    parser.add_argument(
+        "--commit-sha", required=True, help="of commit which initiated the run"
+    )
+    parser.add_argument(
+        "--maximum-wait-time",
+        required=False,
+        type=int,
+        default=45 * 60,
+        help="for state to be reached in minutes, default 45 (min)",
+    )
+    parser.add_argument("--comment", required=True, help="to include with the apply")
+
+    args = parser.parse_args()
+    org, workspace = _get_org_and_workspace(parser, args)
+
+    log.info(
+        f"apply run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
+    )
+    run = find_run_for_commit(workspace, args.clone_url, args.commit_sha)
+    if not run:
+        parser.error(f"no such run found.")
+
+    status = run.get("attributes", {}).get("status")
+    if status == "planned_and_finished":
+        log.info(
+            "%s in workspace %s for commit %s has already been applied",
+            run["id"],
+            args.workspace,
+            args.commit_sha[0:7],
+        )
+        exit(0)
+
+    try:
+        log.error(
+            "apply run %s in workspace %s from status %s",
+            run["id"],
+            args.workspace,
+            status,
+        )
+        _post(f"runs/{run['id']}/actions/apply", data={"comment": args.comment})
+    except TFEError as e:
+        log.error(
+            "apply of run %s in workspace %s failed, %s", run["id"], args.workspace, e
+        )
+        exit(1)
+
+    exit(
+        wait_until(
+            workspace,
+            "planned_and_finished",
+            args.clone_url,
+            args.commit_sha,
+            args.maximum_wait_time * 60,
+        )
+    )

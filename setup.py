@@ -21,7 +21,8 @@ setup(
     install_requires=dependencies,
     entry_points={
         'console_scripts': [
-            'tfe-run-wait = tfe_run_wait.cli:main',
+            'tfe-run-wait = tfe_run_wait.wait:main',
+            'tfe-run-apply = tfe_run_wait.apply:main',
         ],
     },
     classifiers=[
