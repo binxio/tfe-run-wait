@@ -7,7 +7,7 @@ dependencies = ['requests']
 
 setup(
     name='tfe-run-wait',
-    version='0.1.0',
+    version='0.4.1',
     url='https://github.com/binxio/tfe-run-wait',
     license='BSD',
     author='Mark van Holsteijn',
@@ -21,7 +21,8 @@ setup(
     install_requires=dependencies,
     entry_points={
         'console_scripts': [
-            'tfe-run-wait = tfe_run_wait.cli:main',
+            'tfe-run-wait = tfe_run_wait.wait:main',
+            'tfe-run-apply = tfe_run_wait.apply:main',
         ],
     },
     classifiers=[
@@ -39,9 +40,7 @@ setup(
         'Operating System :: POSIX',
         'Operating System :: MacOS',
         'Operating System :: Unix',
-        'Operating System :: Microsoft :: Windows',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 3',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ]
