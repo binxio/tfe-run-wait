@@ -1,0 +1,37 @@
+---
+include:
+  - template: Secret-Detection.gitlab-ci.yml
+  - template: SAST.gitlab-ci.yml
+  - template: Dependency-Scanning.gitlab-ci.yml
+  - template: Container-Scanning.gitlab-ci.yml
+
+workflow:
+  rules:
+    - when: always
+
+stages:
+  - build
+  - test
+
+variables:
+  APPLICATION_IMAGE: eu.gcr.io/mollie-ops/tfe-run-wait:${CI_COMMIT_SHORT_SHA}
+
+build:
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  stage: build
+  script:
+    - >
+      /kaniko/executor
+      --context "$CI_PROJECT_DIR"
+      --dockerfile "Dockerfile"
+      --destination "${APPLICATION_IMAGE}"
+      --cache=true
+      --build-arg GIT_REVISION="${CI_COMMIT_SHORT_SHA}"
+
+
+# code_quality:
+#   artifacts:
+#     paths: [gl-code-quality-report.json]
+#   allow_failure: true
