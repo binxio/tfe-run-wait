@@ -2,8 +2,13 @@
 wait for a TFE run to complete
 """
 from setuptools import find_packages, setup
+from os import path
 
 dependencies = ['requests']
+
+this_directory = path.abspath(path.dirname(__file__))
+with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
+    long_description = f.read()
 
 setup(
     name='tfe-run-wait',
@@ -13,8 +18,10 @@ setup(
     author='Mark van Holsteijn',
     author_email='markvanholsteijn@binx.io',
     description='wait for a TFE run to complete',
-    long_description=__doc__,
-    packages=find_packages(exclude=['tests']),
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     include_package_data=True,
     zip_safe=False,
     platforms='any',
