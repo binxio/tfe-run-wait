@@ -117,6 +117,7 @@ def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[
                     "commit-sha"
                 )
                 if ia_clone_url == url and ia_commit_sha == commit_sha:
+                    log.info(f"found run {get_workspace_run_ui_url(workspace, run)} for commit {commit_sha[0:7]}")
                     return run
     return None
 
@@ -155,6 +156,13 @@ def show_apply(run: dict):
                 stderr.write(r.text)
 
 
+def get_workspace_run_ui_url(workspace: dict, run: dict):
+    run_id = run["id"]
+    workspace_name = workspace["attributes"]["name"]
+    organization = workspace["relationships"]["organization"]["data"]["id"]
+    return f"https://app.terraform.io/app/{organization}/workspaces/{workspace_name}/runs/{run_id}"
+
+
 def wait_until(
     workspace: dict,
     wait_for_status: List[str],
@@ -164,10 +172,12 @@ def wait_until(
 ) -> (int, dict):
     run_id = None
     workspace_name = workspace["attributes"]["name"]
+
     now = start_time = time()
     while (now - start_time) < maximum_wait_time_in_seconds:
         if not run_id:
             run = find_run_for_commit(workspace, clone_url, commit_sha)
+
         else:
             run = _get(f"/api/v2/runs/{run_id}")
 
