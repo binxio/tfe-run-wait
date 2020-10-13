@@ -1,5 +1,6 @@
 import argparse
 import os
+from sys import stderr
 from time import sleep, time
 from typing import Iterable, List, Optional
 
@@ -116,6 +117,7 @@ def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[
                     "commit-sha"
                 )
                 if ia_clone_url == url and ia_commit_sha == commit_sha:
+                    log.info(f"found run {get_workspace_run_ui_url(workspace, run)} for commit {commit_sha[0:7]}")
                     return run
     return None
 
@@ -134,19 +136,48 @@ def get_plan(run: dict) -> Optional[dict]:
     return _get(plan_id)
 
 
+def show_plan(run: dict):
+    plan = get_plan(run)
+    if plan:
+        url = plan.get("attributes", {}).get("log-read-url")
+        if url:
+            r = requests.get(url)
+            if r.status_code == 200:
+                stderr.write(r.text)
+
+
+def show_apply(run: dict):
+    plan = get_apply(run)
+    if plan:
+        url = plan.get("attributes", {}).get("log-read-url")
+        if url:
+            r = requests.get(url)
+            if r.status_code == 200:
+                stderr.write(r.text)
+
+
+def get_workspace_run_ui_url(workspace: dict, run: dict):
+    run_id = run["id"]
+    workspace_name = workspace["attributes"]["name"]
+    organization = workspace["relationships"]["organization"]["data"]["id"]
+    return f"https://app.terraform.io/app/{organization}/workspaces/{workspace_name}/runs/{run_id}"
+
+
 def wait_until(
     workspace: dict,
     wait_for_status: List[str],
     clone_url: str,
     commit_sha: str,
     maximum_wait_time_in_seconds: int,
-):
+) -> (int, dict):
     run_id = None
     workspace_name = workspace["attributes"]["name"]
+
     now = start_time = time()
     while (now - start_time) < maximum_wait_time_in_seconds:
         if not run_id:
             run = find_run_for_commit(workspace, clone_url, commit_sha)
+
         else:
             run = _get(f"/api/v2/runs/{run_id}")
 
@@ -160,7 +191,7 @@ def wait_until(
                     workspace_name,
                     status,
                 )
-                return 0
+                return 0, run
             elif status in (
                 "discarded",
                 "errored",
@@ -176,7 +207,7 @@ def wait_until(
                     status,
                     ", ".join(wait_for_status),
                 )
-                return 1
+                return 1, run
             else:
                 log.info(
                     "%s in workspace %s in status %s, waited %ss",
@@ -213,7 +244,7 @@ def wait_until(
             commit_sha[0:7],
             clone_url,
         )
-    return 1
+    return 1, run
 
 
 def _get_org_and_workspace(parser, args) -> (dict, dict):
@@ -272,15 +303,18 @@ def _wait():
     log.info(
         f"waiting for run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
     )
-    exit(
-        wait_until(
-            workspace,
-            args.wait_for_status,
-            args.clone_url,
-            args.commit_sha,
-            args.maximum_wait_time * 60,
-        )
+    result, run = wait_until(
+        workspace,
+        args.wait_for_status,
+        args.clone_url,
+        args.commit_sha,
+        args.maximum_wait_time * 60,
     )
+
+    if run:
+        show_plan(run)
+
+    return result
 
 
 def _apply():
@@ -328,10 +362,10 @@ def _apply():
             args.commit_sha[0:7],
             status,
         )
-        exit(0)
+        return 0
 
     try:
-        log.error(
+        log.info(
             "apply run %s in workspace %s from status %s",
             run["id"],
             args.workspace,
@@ -342,14 +376,17 @@ def _apply():
         log.error(
             "apply of run %s in workspace %s failed, %s", run["id"], args.workspace, e
         )
-        exit(1)
+        return 1
 
-    exit(
-        wait_until(
-            workspace,
-            ["applied"],
-            args.clone_url,
-            args.commit_sha,
-            args.maximum_wait_time * 60,
-        )
+    result, run = wait_until(
+        workspace,
+        ["applied"],
+        args.clone_url,
+        args.commit_sha,
+        args.maximum_wait_time * 60,
     )
+
+    if run:
+        show_apply(run)
+
+    return result
