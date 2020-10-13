@@ -365,7 +365,7 @@ def _apply():
         return 0
 
     try:
-        log.error(
+        log.info(
             "apply run %s in workspace %s from status %s",
             run["id"],
             args.workspace,
