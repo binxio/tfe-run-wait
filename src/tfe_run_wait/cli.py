@@ -1,16 +1,27 @@
 import argparse
+import json
 import os
-from sys import stderr
+from sys import stdout, stderr
 from time import sleep, time
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 import requests
 from requests import Response
-
 from tfe_run_wait.argument_types import EnvDefault
 from tfe_run_wait.logger import log
 
-_tfe_api_token = os.getenv("TFE_API_TOKEN")
+
+def read_token(hostname: str = "app.terraform.io"):
+    filename = os.path.expanduser("~/.terraform.d/credentials.tfrc.json")
+    if os.path.exists(filename):
+        with open(filename, "r") as f:
+            credentials = json.load(f)
+            token = credentials.get("credentials", {}).get(hostname, {}).get("token")
+
+    return token
+
+
+_tfe_api_token: str = ""
 
 
 def _post(path: str, params: dict = {}, data: dict = {}):
@@ -69,7 +80,9 @@ def _get(path: str, params: dict = {}) -> Optional[dict]:
         raise TFEError(r)
 
 
-def _list(path: str, headers: dict = {}, params: dict = {}) -> Iterable[dict]:
+def _list(
+    path: str, headers: dict = {}, params: dict = {}
+) -> Iterable[Tuple[dict, list]]:
     prms = {"page[size]": 100}
     hdrs = {"Authorization": f"Bearer {_tfe_api_token}"}
     if headers:
@@ -88,7 +101,7 @@ def _list(path: str, headers: dict = {}, params: dict = {}) -> Iterable[dict]:
         response = r.json()
         next_page = response.get("links", {}).get("next")
         for d in response["data"]:
-            yield d
+            yield d, response.get("included", [])
 
         if next_page:
             r = requests.get(next_page, headers=hdrs)
@@ -99,8 +112,54 @@ def _list(path: str, headers: dict = {}, params: dict = {}) -> Iterable[dict]:
         raise TFEError(r)
 
 
+def is_workspace_for_repository(workspace: dict, url) -> bool:
+    vcs_repo = workspace["attributes"].get("vcs-repo")
+    repositoryUrl = vcs_repo.get("repository-http-url") if vcs_repo else ""
+    return repositoryUrl == url or f"{repositoryUrl}.git" == url
+
+
+def get_configuration_version_ingress_attributes(
+    configuration_version_id: str, included: List[dict]
+) -> Optional[dict]:
+    configuration_version = next(
+        filter(
+            lambda i: i.get("type") == "configuration-versions"
+            and i.get("id") == configuration_version_id,
+            included,
+        ),
+        None,
+    )
+
+    if configuration_version:
+        ingress_attributes_id = (
+            configuration_version.get("relationships", {})
+            .get("ingress-attributes", {})
+            .get("data", {})
+            .get("id")
+        )
+        ingress_attributes = next(
+            filter(
+                lambda i: i.get("type") == "ingress-attributes"
+                and i.get("id") == ingress_attributes_id,
+                included,
+            ),
+            None,
+        )
+
+        if ingress_attributes:
+            return ingress_attributes
+
+    return _get(f"configuration-versions/{configuration_version_id}/ingress-attributes")
+
+
 def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[dict]:
-    for run in _list(f'workspaces/{workspace["id"]}/runs'):
+    if not is_workspace_for_repository(workspace, url):
+        return None
+
+    for run, included in _list(
+        f'workspaces/{workspace["id"]}/runs',
+        params={"include": "configuration_version.ingress_attributes"},
+    ):
         configuration_version_id = (
             run.get("relationships", {})
             .get("configuration-version", {})
@@ -108,8 +167,8 @@ def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[
             .get("id")
         )
         if configuration_version_id:
-            ingress_attributes = _get(
-                f"configuration-versions/{configuration_version_id}/ingress-attributes"
+            ingress_attributes = get_configuration_version_ingress_attributes(
+                configuration_version_id, included
             )
             if ingress_attributes:
                 ia_clone_url = ingress_attributes.get("attributes", {}).get("clone-url")
@@ -117,7 +176,9 @@ def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[
                     "commit-sha"
                 )
                 if ia_clone_url == url and ia_commit_sha == commit_sha:
-                    log.info(f"found run {get_workspace_run_ui_url(workspace, run)} for commit {commit_sha[0:7]}")
+                    log.info(
+                        f"found run {get_workspace_run_ui_url(workspace, run)} for commit {commit_sha[0:7]}"
+                    )
                     return run
     return None
 
@@ -169,8 +230,8 @@ def wait_until(
     clone_url: str,
     commit_sha: str,
     maximum_wait_time_in_seconds: int,
+    run_id: str = None,
 ) -> (int, dict):
-    run_id = None
     workspace_name = workspace["attributes"]["name"]
 
     now = start_time = time()
@@ -247,21 +308,37 @@ def wait_until(
     return 1, run
 
 
-def _get_org_and_workspace(parser, args) -> (dict, dict):
+def _get_org_and_workspace(parser, args) -> Iterable:
     global _tfe_api_token
-    if args.token:
-        _tfe_api_token = args.token
+    _tfe_api_token = args.token if args.token else read_token()
 
     org = _get(f"organizations/{args.organization}")
     if not org:
         parser.error(f"unknown organization {args.organization}.")
 
-    workspace = _get(f"organizations/{args.organization}/workspaces/{args.workspace}")
-    if not workspace:
-        parser.error(
-            f"workspace {args.workspace} is unknown in organization {args.organization}."
+    if args.workspace:
+        workspace = _get(
+            f"organizations/{args.organization}/workspaces/{args.workspace}"
         )
-    return (org, workspace)
+        if not workspace:
+            parser.error(
+                f"workspace {args.workspace} is unknown in organization {args.organization}."
+            )
+        if not is_workspace_for_repository(workspace, args.clone_url):
+            parser.error(
+                f"the workspace {arg.workspace} is not associated with {args.clone_url} in {args.organization}"
+            )
+
+        yield (org, workspace)
+    else:
+        for workspace, _ in _list(f"/organizations/{args.organization}/workspaces"):
+            if is_workspace_for_repository(workspace, args.clone_url):
+                yield (org, workspace)
+
+        if not workspace:
+            parser.error(
+                f"there are no workspaces associated with {args.clone_url} in {args.organization}"
+            )
 
 
 def _wait():
@@ -273,10 +350,11 @@ def _wait():
         action=EnvDefault,
         envvar="TFE_API_TOKEN",
         help="Terraform Enterprise access token, default from TFE_API_TOKEN",
+        default=read_token(),
     )
 
     parser.add_argument("--organization", required=True, help="of the workspace")
-    parser.add_argument("--workspace", required=True, help="to inspect runs for")
+    parser.add_argument("--workspace", required=False, help="to inspect runs for")
     parser.add_argument(
         "--clone-url", required=True, help="of source repository for the run"
     )
@@ -298,23 +376,33 @@ def _wait():
         help="for state to be reached in minutes, default 45",
     )
     args = parser.parse_args()
-    org, workspace = _get_org_and_workspace(parser, args)
 
-    log.info(
-        f"waiting for run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
-    )
-    result, run = wait_until(
-        workspace,
-        args.wait_for_status,
-        args.clone_url,
-        args.commit_sha,
-        args.maximum_wait_time * 60,
-    )
+    errors = 0
+    for org, workspace in _get_org_and_workspace(parser, args):
 
-    if run:
-        show_plan(run)
+        if not workspace:
+            parser.error(
+                f"no workspaces found in {args.organization} for repository {args.clone_url}"
+            )
+        args.workspace = workspace["attributes"]["name"]
 
-    return result
+        log.info(
+            f"waiting for run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
+        )
+        result, run = wait_until(
+            workspace,
+            args.wait_for_status,
+            args.clone_url,
+            args.commit_sha,
+            args.maximum_wait_time * 60,
+        )
+
+        errors += result
+
+        if run:
+            show_plan(run)
+
+    return errors != 0
 
 
 def _apply():
@@ -324,10 +412,11 @@ def _apply():
         action=EnvDefault,
         envvar="TFE_API_TOKEN",
         help="Terraform Enterprise access token, default from TFE_API_TOKEN",
+        default=read_token(),
     )
 
     parser.add_argument("--organization", required=True, help="of the workspace")
-    parser.add_argument("--workspace", required=True, help="to inspect runs for")
+    parser.add_argument("--workspace", required=False, help="to inspect runs for")
     parser.add_argument(
         "--clone-url", required=True, help="of source repository for the run"
     )
@@ -342,51 +431,87 @@ def _apply():
         help="for state to be reached in minutes, default 45 (min)",
     )
     parser.add_argument("--comment", required=True, help="to include with the apply")
+    parser.add_argument(
+        "--confirm", default=False, action="store_true", help="after showing the plan"
+    )
 
+    errors = []
+    count = 0
     args = parser.parse_args()
-    org, workspace = _get_org_and_workspace(parser, args)
+
+    for org, workspace in _get_org_and_workspace(parser, args):
+        count += 1
+        args.workspace = workspace["attributes"]["name"]
+        run = find_run_for_commit(workspace, args.clone_url, args.commit_sha)
+        if not run:
+            log.warning(
+                f"no run found in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
+            )
+            continue
+
+        log.info(
+            f"apply run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
+        )
+
+        status = run.get("attributes", {}).get("status")
+        if status in ["applied", "planned_and_finished"]:
+            log.info(
+                "%s in workspace %s for commit %s has already been %s",
+                run["id"],
+                args.workspace,
+                args.commit_sha[0:7],
+                status,
+            )
+            continue
+
+        show_plan(run)
+        if args.confirm:
+            stdout.flush()
+            stderr.flush()
+            confirmation = input("want to apply this plan?")
+            if confirmation != "yes":
+                continue
+
+        try:
+            log.info(
+                "apply run %s in workspace %s from status %s",
+                run["id"],
+                args.workspace,
+                status,
+            )
+            _post(f"runs/{run['id']}/actions/apply", data={"comment": args.comment})
+        except TFEError as e:
+            log.error(
+                "apply of run %s in workspace %s failed, %s",
+                run["id"],
+                args.workspace,
+                e,
+            )
+            errors.append(get_workspace_run_ui_url(workspace, run))
+            continue
+
+        result, run = wait_until(
+            workspace,
+            ["applied"],
+            args.clone_url,
+            args.commit_sha,
+            args.maximum_wait_time * 60,
+        )
+
+        if result != 0:
+            errors.append(get_workspace_run_ui_url(workspace, run))
+
+        if run:
+            show_apply(run)
 
     log.info(
-        f"apply run in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
-    )
-    run = find_run_for_commit(workspace, args.clone_url, args.commit_sha)
-    if not run:
-        parser.error(f"no such run found.")
-
-    status = run.get("attributes", {}).get("status")
-    if status in ["applied", "planned_and_finished"]:
-        log.info(
-            "%s in workspace %s for commit %s has already been %s",
-            run["id"],
-            args.workspace,
-            args.commit_sha[0:7],
-            status,
-        )
-        return 0
-
-    try:
-        log.info(
-            "apply run %s in workspace %s from status %s",
-            run["id"],
-            args.workspace,
-            status,
-        )
-        _post(f"runs/{run['id']}/actions/apply", data={"comment": args.comment})
-    except TFEError as e:
-        log.error(
-            "apply of run %s in workspace %s failed, %s", run["id"], args.workspace, e
-        )
-        return 1
-
-    result, run = wait_until(
-        workspace,
-        ["applied"],
-        args.clone_url,
+        "apply of commit %s from repository %s affected %s workspaces, %s failed",
         args.commit_sha,
-        args.maximum_wait_time * 60,
+        args.clone_url,
+        count,
+        len(errors),
     )
+    for run in errors:
+        log.error("apply of run %s failed", run)
 
-    if run:
-        show_apply(run)
-
-    return result
+    return len(errors) != 0
