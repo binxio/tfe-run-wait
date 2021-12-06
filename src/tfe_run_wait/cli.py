@@ -152,7 +152,7 @@ def get_configuration_version_ingress_attributes(
     return _get(f"configuration-versions/{configuration_version_id}/ingress-attributes")
 
 
-def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[dict]:
+def find_run_for_commit(workspace: dict, url: str, commit_sha: str, branch:str=None) -> Optional[dict]:
     if not is_workspace_for_repository(workspace, url):
         return None
 
@@ -175,7 +175,8 @@ def find_run_for_commit(workspace: dict, url: str, commit_sha: str) -> Optional[
                 ia_commit_sha = ingress_attributes.get("attributes", {}).get(
                     "commit-sha"
                 )
-                if ia_clone_url == url and ia_commit_sha == commit_sha:
+                ia_branch = ingress_attributes.get("attributes", {}).get("branch")
+                if ia_clone_url == url and ia_commit_sha == commit_sha and (not branch or branch == ia_branch):
                     log.info(
                         f"found run {get_workspace_run_ui_url(workspace, run)} for commit {commit_sha[0:7]}"
                     )
@@ -229,6 +230,7 @@ def wait_until(
     wait_for_status: List[str],
     clone_url: str,
     commit_sha: str,
+    branch: Optional[str],
     maximum_wait_time_in_seconds: int,
     run_id: str = None,
 ) -> (int, dict):
@@ -237,7 +239,7 @@ def wait_until(
     now = start_time = time()
     while (now - start_time) < maximum_wait_time_in_seconds:
         if not run_id:
-            run = find_run_for_commit(workspace, clone_url, commit_sha)
+            run = find_run_for_commit(workspace, clone_url, commit_sha, branch)
 
         else:
             run = _get(f"/api/v2/runs/{run_id}")
@@ -362,6 +364,9 @@ def _wait():
         "--commit-sha", required=True, help="of commit which initiated the run"
     )
     parser.add_argument(
+        "--branch", required=False, help="of commit which initiated the run"
+    )
+    parser.add_argument(
         "--wait-for-status",
         required=False,
         default=["applied", "planned_and_finished"],
@@ -376,6 +381,8 @@ def _wait():
         help="for state to be reached in minutes, default 45",
     )
     args = parser.parse_args()
+    if not args.workspace and not args.branch:
+        parser.error("please specify a workspace or a branch")
 
     errors = 0
     for org, workspace in _get_org_and_workspace(parser, args):
@@ -394,6 +401,7 @@ def _wait():
             args.wait_for_status,
             args.clone_url,
             args.commit_sha,
+            args.branch,
             args.maximum_wait_time * 60,
         )
 
@@ -424,6 +432,9 @@ def _apply():
         "--commit-sha", required=True, help="of commit which initiated the run"
     )
     parser.add_argument(
+        "--branch", required=False, help="of commit which initiated the run"
+    )
+    parser.add_argument(
         "--maximum-wait-time",
         required=False,
         type=int,
@@ -439,10 +450,13 @@ def _apply():
     count = 0
     args = parser.parse_args()
 
+    if not args.workspace and not args.branch:
+        parser.error("please specify a workspace or a branch")
+
     for org, workspace in _get_org_and_workspace(parser, args):
         count += 1
         args.workspace = workspace["attributes"]["name"]
-        run = find_run_for_commit(workspace, args.clone_url, args.commit_sha)
+        run = find_run_for_commit(workspace, args.clone_url, args.commit_sha, args.branch)
         if not run:
             log.warning(
                 f"no run found in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
@@ -495,6 +509,7 @@ def _apply():
             ["applied"],
             args.clone_url,
             args.commit_sha,
+            args.branch,
             args.maximum_wait_time * 60,
         )
 

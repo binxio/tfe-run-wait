@@ -8,6 +8,7 @@ tfe-run-wait [-h] \
         --organization ORGANIZATION \
         --clone-url CLONE_URL \
         --commit-sha COMMIT_SHA \
+        [--branch BRANCH ] \
         [--workspace WORKSPACE] \
         [--wait-for-status WAIT_FOR_STATUS] \
         [--maximum-wait-time MAXIMUM_WAIT_TIME]
@@ -17,6 +18,7 @@ tfe-run-apply [-h] \
         --organization ORGANIZATION \
         --clone-url CLONE_URL \
         --commit-sha COMMIT_SHA \
+        [--branch BRANCH ] \
         --comment COMMENT \
         [--confirm] \
         [--workspace WORKSPACE] \
@@ -33,6 +35,8 @@ tfe-run-apply [-h] \
   --clone-url CLONE_URL
                         of source repository for the run
   --commit-sha COMMIT_SHA
+                        of commit which initiated the run
+  --branch BRANCH                        
                         of commit which initiated the run
   --wait-for-status WAIT_FOR_STATUS
                         wait state to reach, defaults to 'applied' and 'planned_and_finished'
@@ -53,7 +57,7 @@ tfe-run-wait will wait until the specified status is reached. By default it will
 tfe-run-apply will request terraform to apply to plan for the run. If the status of the run is already `applied` or `planned_and_finished`, it will exit without an error.
   It will not check whether the run is in the correct state. The run should be in the state `planned` or `policy_checked`.
 
-If no workspace is specified, the utility will search for all workspaces associated with the specified source repository.
+If no workspace is specified, you have to specify a branch; the utility will search for all workspaces associated with the specified source repository and branch.
 
 
 ## CAVEATS
