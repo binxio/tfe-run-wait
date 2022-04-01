@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 from sys import stdout, stderr
 from time import sleep, time
 from typing import Iterable, List, Optional, Tuple
@@ -152,7 +153,9 @@ def get_configuration_version_ingress_attributes(
     return _get(f"configuration-versions/{configuration_version_id}/ingress-attributes")
 
 
-def find_run_for_commit(workspace: dict, url: str, commit_sha: str, branch:str=None) -> Optional[dict]:
+def find_run_for_commit(
+    workspace: dict, url: str, commit_sha: str, branch: str = None
+) -> Optional[dict]:
     if not is_workspace_for_repository(workspace, url):
         return None
 
@@ -176,7 +179,11 @@ def find_run_for_commit(workspace: dict, url: str, commit_sha: str, branch:str=N
                     "commit-sha"
                 )
                 ia_branch = ingress_attributes.get("attributes", {}).get("branch")
-                if ia_clone_url == url and ia_commit_sha == commit_sha and (not branch or branch == ia_branch):
+                if (
+                    ia_clone_url == url
+                    and ia_commit_sha == commit_sha
+                    and (not branch or branch == ia_branch)
+                ):
                     log.info(
                         f"found run {get_workspace_run_ui_url(workspace, run)} for commit {commit_sha[0:7]}"
                     )
@@ -198,14 +205,40 @@ def get_plan(run: dict) -> Optional[dict]:
     return _get(plan_id)
 
 
-def show_plan(run: dict):
+_structured_log_pattern = re.compile('{"@.*}\n?')
+
+
+def _filter_out_interesting_messages(m: re.Match):
+    """
+    filters out interesting structured log messsages
+    """
+    log = json.loads(m.group(0))
+    if log.get("type", "") in ["refresh_complete", "refresh_start", "resource_drift"]:
+        return ""
+    message = log.get("@message", m.group(0)).rstrip()
+    return f"{message}\n"
+
+
+def show_plan(workspace: dict, run: dict):
+    stderr.write(f"{get_workspace_run_ui_url(workspace, run)}\n")
     plan = get_plan(run)
     if plan:
-        url = plan.get("attributes", {}).get("log-read-url")
+        attributes = plan.get("attributes", {})
+        url = attributes.get("log-read-url")
         if url:
             r = requests.get(url)
             if r.status_code == 200:
-                stderr.write(r.text)
+                is_structured_output = attributes.get(
+                    "structured-run-output-enabled", False
+                )
+                if is_structured_output:
+                    stderr.write(
+                        _structured_log_pattern.sub(
+                            _filter_out_interesting_messages, r.text
+                        )
+                    )
+                else:
+                    stderr.write(r.text)
 
 
 def show_apply(run: dict):
@@ -302,7 +335,6 @@ def wait_until(
     else:
         log.error(
             "time out while waiting for a run in workspace %s for commit %s in %s to appear",
-            run_id,
             workspace_name,
             commit_sha[0:7],
             clone_url,
@@ -328,7 +360,7 @@ def _get_org_and_workspace(parser, args) -> Iterable:
             )
         if not is_workspace_for_repository(workspace, args.clone_url):
             parser.error(
-                f"the workspace {arg.workspace} is not associated with {args.clone_url} in {args.organization}"
+                f"the workspace {args.workspace} is not associated with {args.clone_url} in {args.organization}"
             )
 
         yield (org, workspace)
@@ -408,7 +440,7 @@ def _wait():
         errors += result
 
         if run:
-            show_plan(run)
+            show_plan(workspace, run)
 
     return errors != 0
 
@@ -456,7 +488,9 @@ def _apply():
     for org, workspace in _get_org_and_workspace(parser, args):
         count += 1
         args.workspace = workspace["attributes"]["name"]
-        run = find_run_for_commit(workspace, args.clone_url, args.commit_sha, args.branch)
+        run = find_run_for_commit(
+            workspace, args.clone_url, args.commit_sha, args.branch
+        )
         if not run:
             log.warning(
                 f"no run found in {args.organization}:{args.workspace} for commit {args.commit_sha[0:7]} in repository {args.clone_url}"
@@ -478,7 +512,7 @@ def _apply():
             )
             continue
 
-        show_plan(run)
+        show_plan(workspace, run)
         if args.confirm:
             stdout.flush()
             stderr.flush()
