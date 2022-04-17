@@ -13,6 +13,7 @@ from tfe_run_wait.logger import log
 
 
 def read_token(hostname: str = "app.terraform.io"):
+    token = None
     filename = os.path.expanduser("~/.terraform.d/credentials.tfrc.json")
     if os.path.exists(filename):
         with open(filename, "r") as f:
