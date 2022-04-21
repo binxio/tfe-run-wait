@@ -219,38 +219,41 @@ def _filter_out_interesting_messages(m: re.Match):
     message = log.get("@message", m.group(0)).rstrip()
     return f"{message}\n"
 
+def show_output(plan: dict):
+    attributes = plan.get("attributes", {})
+    url = attributes.get("log-read-url")
+    if url:
+        response = requests.get(url)
+        if response.status_code == 200:
+            attributes = plan.get("attributes", {})
+            is_structured_output = attributes.get(
+                "structured-run-output-enabled", False
+            )
+            stderr.write(f'{"-" * 80}\n')
+            if is_structured_output:
+                stderr.write(
+                    _structured_log_pattern.sub(
+                        _filter_out_interesting_messages, response.text
+                    )
+                )
+            else:
+                stderr.write(response.text)
+            stderr.write(f'{"-" * 80}\n')
+        else:
+            stderr.write("api call failed, %s, %s", response.status_code, response.text)
+
 
 def show_plan(workspace: dict, run: dict):
     stderr.write(f"{get_workspace_run_ui_url(workspace, run)}\n")
     plan = get_plan(run)
     if plan:
-        attributes = plan.get("attributes", {})
-        url = attributes.get("log-read-url")
-        if url:
-            r = requests.get(url)
-            if r.status_code == 200:
-                is_structured_output = attributes.get(
-                    "structured-run-output-enabled", False
-                )
-                if is_structured_output:
-                    stderr.write(
-                        _structured_log_pattern.sub(
-                            _filter_out_interesting_messages, r.text
-                        )
-                    )
-                else:
-                    stderr.write(r.text)
+        show_output(plan)
 
 
 def show_apply(run: dict):
     plan = get_apply(run)
     if plan:
-        url = plan.get("attributes", {}).get("log-read-url")
-        if url:
-            r = requests.get(url)
-            if r.status_code == 200:
-                stderr.write(r.text)
-
+        show_output(plan)
 
 def get_workspace_run_ui_url(workspace: dict, run: dict):
     run_id = run["id"]
