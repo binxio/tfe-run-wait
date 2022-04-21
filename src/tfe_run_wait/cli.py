@@ -405,7 +405,7 @@ def _wait():
     parser.add_argument(
         "--wait-for-status",
         required=False,
-        default=["applied", "planned_and_finished"],
+        default=[],
         help="wait state to reach",
         action="append",
     )
@@ -419,6 +419,9 @@ def _wait():
     args = parser.parse_args()
     if not args.workspace and not args.branch:
         parser.error("please specify a workspace or a branch")
+
+    if not args.wait_for_status:
+        args.wait_for_status = ["applied", "planned_and_finished"]
 
     errors = 0
     for org, workspace in _get_org_and_workspace(parser, args):
