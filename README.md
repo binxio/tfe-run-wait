@@ -31,12 +31,12 @@ tfe-run-apply [-h] \
   --organization ORGANIZATION
                         of the workspace
   --workspace WORKSPACE
-                        to inspect runs for. if not specified apply to all workspaces associated with the source repo. 
+                        to inspect runs for. if not specified apply to all workspaces associated with the source repo.
   --clone-url CLONE_URL
                         of source repository for the run
   --commit-sha COMMIT_SHA
                         of commit which initiated the run
-  --branch BRANCH                        
+  --branch BRANCH
                         of commit which initiated the run
   --wait-for-status WAIT_FOR_STATUS
                         wait state to reach, defaults to 'applied' and 'planned_and_finished'
@@ -49,16 +49,20 @@ tfe-run-apply [-h] \
 
 
 ## Description
-Finds a Terraform enterpise run initiated for the specified git commit and either polls for a specific state change or apply the planned changes.
+Finds a Terraform Enterpise run initiated for the specified git commit and either polls for a
+specific state change or apply the planned changes.
 
-tfe-run-wait will wait until the specified status is reached. By default it will wait for the status `applied` or `planned_and_finished`. When the run 
-  reaches a non specified final state, it will exit with an error.
+tfe-run-wait will wait until the specified status is reached. By default it will wait for
+the status `applied` or `planned_and_finished`. When the run reaches a non specified final state,
+it will exit with an error.
 
-tfe-run-apply will request terraform to apply to plan for the run. If the status of the run is already `applied` or `planned_and_finished`, it will exit without an error.
-  It will not check whether the run is in the correct state. The run should be in the state `planned` or `policy_checked`.
+tfe-run-apply will request terraform to apply to plan for the run. If the status of the run is
+already `applied` or `planned_and_finished`, it will exit without an error. It will not check
+whether the run is in the correct state. Depending on the configuration the run should be in
+the state `planned`, `cost_estimated` or `policy_checked`.
 
-If no workspace is specified, you have to specify a branch; the utility will search for all workspaces associated with the specified source repository and branch.
-
+If no workspace is specified, you have to specify a branch; the utility will search for
+all workspaces associated with the specified source repository and branch.
 
 ## CAVEATS
 - the wait and apply is single threaded.
